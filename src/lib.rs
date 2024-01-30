@@ -39,6 +39,7 @@ impl<T> Caja<T> {
     pub fn new_uninitialized(size : usize) -> Result<Self, CajaError> {unsafe{
         if size == 0 {
             return Err(CajaError::ZeroSized);
+        }
 
         // Create a layout for the allocation
         let lay = match Layout::array::<T>(size) {
