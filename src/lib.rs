@@ -16,6 +16,7 @@ use std::{
 };
 
 #[derive(Debug)]
+/// The error enum used throughout the library
 pub enum CajaError {
     FailedLayoutCreation,
     FailedAllocation,
@@ -27,14 +28,17 @@ pub enum CajaError {
 /// size needn't be known at compile time.
 pub struct Caja<T> {
     /// Length of the array
-    length  : usize,
-    data : *mut T,
+    length : usize,
+    data   : *mut T,
 }
 impl<T> Caja<T> {
+    /// If successful, allocates size * size_of::<T>() bytes into the heap,
+    /// resulting in an uninitialized array that is used by Caja.
+    ///
+    /// Note: size must be non zero.
     pub fn new_uninitialized(size : usize) -> Result<Self, CajaError> {unsafe{
         if size == 0 {
             return Err(CajaError::ZeroSized);
-        }
 
         // Create a layout for the allocation
         let lay = match Layout::array::<T>(size) {
@@ -54,6 +58,10 @@ impl<T> Caja<T> {
         });
     };}
 
+    /// If successful, allocates size * size_of::<T>() bytes into the heap,
+    /// and then initializes each byte with 0.
+    ///
+    /// Note: size must be non zero.
     pub fn new_zeroed(size : usize) -> Result<Self, CajaError> {unsafe{
         let c = match Self::new_uninitialized(size) {
             Ok(ok) => ok,
@@ -73,20 +81,28 @@ impl<T> Caja<T> {
         return self.data;
     }
 
+    /// Returns the length of the array
     #[inline(always)]
     pub fn len(&self) -> usize {
         return self.length;
     }
 
+    /// Returns a slice of the array
     pub fn as_slice(&self) -> &[T] {unsafe{
         return std::slice::from_raw_parts(self.data, self.length);
     };}
 
+    /// Returns a mutable sliice of the array
     pub fn as_mut_slice(&self) -> &mut [T] {unsafe{
         return std::slice::from_raw_parts_mut(self.data, self.length);
     };}
 }
-impl<T : Copy> Caja<T> {
+impl<T : Copy> Caja<T> { 
+    /// If successful, allocates an array of type 'T' and size 'size' into 
+    /// the heap, and initializes each element with 'default'.
+    /// T must implement Copy for this to work.
+    ///
+    /// Note: size must be non zero.
     pub fn new(size : usize, default : T) -> Result<Self, CajaError> {unsafe{
         let c = match Self::new_uninitialized(size) {
             Ok(ok) => ok,
