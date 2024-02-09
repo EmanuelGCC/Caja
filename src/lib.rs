@@ -33,8 +33,10 @@ pub struct Caja<T> {
 impl<T> Caja<T> {
     /// If successful, allocates size * size_of::<T>() bytes into the heap,
     /// resulting in an uninitialized array that is used by Caja.
+    /// This function will panic in the same conditions alloc::alloc(Layout) will
+    /// (so the same conditions for Box<T>, Vec<T>, etc).
     ///
-    /// Note: size must be non zero.
+    /// Note: size must be non zero to obtain a valid pointer.
     pub fn new_uninitialized(size : usize) -> Self {unsafe{
         if size == 0 {
             return Self {
@@ -60,8 +62,10 @@ impl<T> Caja<T> {
 
     /// If successful, allocates size * size_of::<T>() bytes into the heap,
     /// and then initializes each byte with 0.
+    /// This function will panic in the same conditions alloc::alloc(Layout) will
+    /// (so the same conditions for Box<T>, Vec<T>, etc).
     ///
-    /// Note: size must be non zero.
+    /// Note: size must be non zero to obtain a valid pointer.
     pub fn new_zeroed(size : usize) -> Self {unsafe{
         let c = Self::new_uninitialized(size);
 
@@ -98,8 +102,10 @@ impl<T : Copy> Caja<T> {
     /// If successful, allocates an array of type 'T' and size 'size' into 
     /// the heap, and initializes each element with 'default'.
     /// T must implement Copy for this to work.
+    /// This function will panic in the same conditions alloc::alloc(Layout) will
+    /// (so the same conditions for Box<T>, Vec<T>, etc).
     ///
-    /// Note: size must be non zero.
+    /// Note: size must be non zero to obtain a valid pointer.
     pub fn new(size : usize, default : T) -> Self {unsafe{
         let c = Self::new_uninitialized(size);
 
@@ -123,17 +129,25 @@ impl<T> Drop for Caja<T> {
 impl<T> Index<usize> for Caja<T> {
     type Output = T;
 
+    ///  Index into the array. This function does NOT do bounds checking
     fn index(&self, index : usize) -> &Self::Output {unsafe{
         return self.data.add(index).as_ref().unwrap();
     };}
 }
 impl<T> IndexMut<usize> for Caja<T> {
+    ///  Index into the array (mutably). This function does NOT do bounds checking
     fn index_mut(&mut self, index : usize) -> &mut Self::Output {unsafe{
         return self.data.add(index).as_mut().unwrap();
     };}
 }
 
 impl<T : Copy> From<&[T]> for Caja<T> {
+    /// Creates a Caja from a slice, copying the data into
+    /// a new buffer in the heap.
+    ///
+    /// Because this functions creates a  new caja, it will panic 
+    /// under the same conditions as the new variations
+    /// (so the same conditions for Box<T>, Vec<T>, etc).
     fn from(frm : &[T]) -> Self {
         let mut ret = Self::new_uninitialized(frm.len());
         
@@ -146,6 +160,12 @@ impl<T : Copy> From<&[T]> for Caja<T> {
 }
 
 impl<T : Copy> Clone for Caja<T> {
+    /// Clones self, creating a new array on the heap
+    /// with the same data as the original one.
+    ///    
+    /// Because this functions creates a  new caja, it will panic 
+    /// under the same conditions as the new variations
+    /// (so the same conditions for Box<T>, Vec<T>, etc).
     fn clone(&self) -> Self {
         // Create a layout for the allocation
         let lay = Layout::array::<T>(self.length).unwrap();
