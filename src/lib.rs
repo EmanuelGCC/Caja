@@ -7,21 +7,20 @@
 // So I wrote this simple library.
 
 #![allow(dead_code)]
+#![no_std]
 
-use std::{
-    alloc::{self, Layout},
-    mem::size_of,
-    ops::{Index, IndexMut},
-    fmt::{Debug, Display, Formatter}
+extern crate alloc;
+
+use alloc::{
+    alloc::{alloc, Layout, dealloc, handle_alloc_error},
+    fmt, fmt::{Debug, Display, Formatter},
+    slice::{self, },
 };
 
-#[derive(Debug)]
-/// The error enum used throughout the library
-pub enum CajaError {
-    FailedLayoutCreation,
-    FailedAllocation,
-    ZeroSized,
-}
+use core::{
+    mem::size_of, 
+    ops::{Index, IndexMut}
+};
 
 /// An fixed-sized array allocated in the heap
 /// of any arbitrary type, and whose
@@ -36,44 +35,41 @@ impl<T> Caja<T> {
     /// resulting in an uninitialized array that is used by Caja.
     ///
     /// Note: size must be non zero.
-    pub fn new_uninitialized(size : usize) -> Result<Self, CajaError> {unsafe{
+    pub fn new_uninitialized(size : usize) -> Self {unsafe{
         if size == 0 {
-            return Err(CajaError::ZeroSized);
+            return Self {
+                length : 0,
+                data   : core::ptr::null_mut()
+            };
         }
 
         // Create a layout for the allocation
-        let lay = match Layout::array::<T>(size) {
-            Ok(ok) => ok,
-            Err(_) => return Err(CajaError::FailedLayoutCreation)
-        };
+        let lay = Layout::array::<T>(size).unwrap();
 
         // Check that the allocation was successful
-        let ptr = alloc::alloc(lay) as *mut T;
+        let ptr = alloc(lay) as *mut T;
         if ptr.is_null() {
-            return Err(CajaError::FailedAllocation);
+            handle_alloc_error(lay);
         }
 
-        return Ok(Self {
+        return Self {
             length : size,
             data   : ptr,
-        });
+        };
     };}
 
     /// If successful, allocates size * size_of::<T>() bytes into the heap,
     /// and then initializes each byte with 0.
     ///
     /// Note: size must be non zero.
-    pub fn new_zeroed(size : usize) -> Result<Self, CajaError> {unsafe{
-        let c = match Self::new_uninitialized(size) {
-            Ok(ok) => ok,
-            Err(e) => return Err(e)
-        };
+    pub fn new_zeroed(size : usize) -> Self {unsafe{
+        let c = Self::new_uninitialized(size);
 
         for i in 0..size*size_of::<T>() {
             *(c.data as *mut u8).add(i) = 0;
         }
 
-        return Ok(c);
+        return c;
     };}
 
     /// Returns the underlying pointer in Caja
@@ -90,12 +86,12 @@ impl<T> Caja<T> {
 
     /// Returns a slice of the array
     pub fn as_slice(&self) -> &[T] {unsafe{
-        return std::slice::from_raw_parts(self.data, self.length);
+        return slice::from_raw_parts(self.data, self.length);
     };}
 
     /// Returns a mutable sliice of the array
     pub fn as_mut_slice(&self) -> &mut [T] {unsafe{
-        return std::slice::from_raw_parts_mut(self.data, self.length);
+        return slice::from_raw_parts_mut(self.data, self.length);
     };}
 }
 impl<T : Copy> Caja<T> { 
@@ -104,23 +100,20 @@ impl<T : Copy> Caja<T> {
     /// T must implement Copy for this to work.
     ///
     /// Note: size must be non zero.
-    pub fn new(size : usize, default : T) -> Result<Self, CajaError> {unsafe{
-        let c = match Self::new_uninitialized(size) {
-            Ok(ok) => ok,
-            Err(e) => return Err(e)
-        };
+    pub fn new(size : usize, default : T) -> Self {unsafe{
+        let c = Self::new_uninitialized(size);
 
         for i in 0..size {
             *c.data.add(i) = default;
         }
 
-        return Ok(c);
+        return c;
     };}
 }
 
 impl<T> Drop for Caja<T> {
     fn drop(&mut self) {unsafe{
-        alloc::dealloc(
+        dealloc(
             self.data as *mut u8,
             Layout::array::<T>(self.length).unwrap()
         );
@@ -140,25 +133,42 @@ impl<T> IndexMut<usize> for Caja<T> {
     };}
 }
 
-impl<T : Copy> TryFrom<&[T]> for Caja<T> {
-    type Error = CajaError;
-
-    fn try_from(frm : &[T]) -> Result<Self,CajaError> {
-        let mut ret = match Self::new_uninitialized(frm.len()) {
-            Ok(ok) => ok,
-            Err(e) => return Err(e)
-        };
+impl<T : Copy> From<&[T]> for Caja<T> {
+    fn from(frm : &[T]) -> Self {
+        let mut ret = Self::new_uninitialized(frm.len());
         
         for i in 0..frm.len() {
             ret[i] = frm[i];
         }
 
-        return Ok(ret);
+        return ret;
+    }
+}
+
+impl<T : Copy> Clone for Caja<T> {
+    fn clone(&self) -> Self {
+        // Create a layout for the allocation
+        let lay = Layout::array::<T>(self.length).unwrap();
+
+        // Check that the allocation was successful
+        let ptr = unsafe { alloc(lay) as *mut T };
+        if ptr.is_null() {
+            handle_alloc_error(lay);
+        }
+
+        for i in 0..self.length {
+            unsafe { *ptr.add(i) = *self.data.add(i); };
+        }
+
+        Self {
+            length : self.length,
+            data   : ptr,
+        }
     }
 }
 
 impl<T : Display> Display for Caja<T> {
-    fn fmt(&self, format : &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, format : &mut Formatter<'_>) -> fmt::Result {
         let mut res = write!(format, "Length : {}\nData : [ ", self.length);
         
         for i in 0..self.length-1 {
@@ -175,11 +185,11 @@ impl<T : Display> Display for Caja<T> {
 }
 
 impl<T : Debug> Debug for Caja<T> {
-    fn fmt(&self, format : &mut Formatter<'_>) -> std::fmt::Result {unsafe{
+    fn fmt(&self, format : &mut Formatter<'_>) -> fmt::Result {unsafe{
         return format.debug_struct("Caja")
             .field("length", &self.length)
             .field("data", &self.data)
-            .field("data as an array", &std::slice::from_raw_parts(self.data, self.length))
+            .field("data as an array", &slice::from_raw_parts(self.data, self.length))
             .finish();
     };}
 }
