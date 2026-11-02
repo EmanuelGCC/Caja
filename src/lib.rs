@@ -21,8 +21,8 @@ use core::{
 /// size needn't be known at compile time.
 pub struct Caja<T> {
     /// Length of the array
-    length : usize,
-    data   : *mut T,
+    length: usize,
+    data  : *mut T,
 }
 /// An iterator for &Caja
 pub struct CajaIterator<'a, T> {
@@ -44,10 +44,10 @@ impl<T> Caja<T> {
     ///
     /// Note: size must be non zero to obtain a valid pointer.
     pub unsafe fn new_uninitialized(size : usize) -> Self {
-        if size == 0 {
+        if size == 0 || size_of::<T>() == 0 {
             return Self {
-                length : 0,
-                data   : core::ptr::null_mut()
+                length: size,
+                data  : core::ptr::NonNull::<T>::dangling().as_mut()
             };
         }
 
@@ -61,8 +61,8 @@ impl<T> Caja<T> {
         }
 
         Self {
-            length : size,
-            data   : ptr,
+            length: size,
+            data  : ptr,
         }
     }
 
@@ -85,7 +85,7 @@ impl<T> Caja<T> {
 
     /// Returns the underlying (mut) pointer in Caja
     #[inline(always)]
-    pub fn as_mut_ptr(&self) -> *mut T {
+    pub fn as_mut_ptr(&mut self) -> *mut T {
         self.data
     }
 
@@ -109,7 +109,7 @@ impl<T> Caja<T> {
 
     /// Returns a mutable sliice of the array
     #[inline(always)]
-    pub fn as_mut_slice(&self) -> &mut [T] {unsafe{
+    pub fn as_mut_slice(&mut self) -> &mut [T] {unsafe{
         slice::from_raw_parts_mut(self.data, self.length)
     }}
 
@@ -127,6 +127,8 @@ impl<T> Caja<T> {
 }
 impl<T> Drop for Caja<T> {
     fn drop(&mut self) {unsafe{
+        if size_of::<T>() == 0 || self.length == 0 { return; }
+        
         dealloc(
             self.data as *mut u8,
             Layout::array::<T>(self.length).unwrap()
